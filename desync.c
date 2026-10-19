@@ -229,6 +229,7 @@ static ssize_t send_fake(struct eval *val, const char *buffer,
             uniperror("write fake pipe");
             break;
         }
+        LOG(LOG_S, "fake pipe write: requested=%ld returned=%zd\n", pos, len);
         if (len != pos) {
             LOG(LOG_E, "short write to fake pipe: %zd != %ld\n", len, pos);
             break;
@@ -236,9 +237,10 @@ static ssize_t send_fake(struct eval *val, const char *buffer,
 
         len = splice(fds[0], 0, val->fd, 0, (size_t)len, 0);
         if (len < 0) {
-            uniperror("splice");
+            uniperror("splice fake packet to socket");
             break;
         }
+        LOG(LOG_S, "fake packet splice: returned=%zd\n", len);
         ret = len;
         break;
     }
