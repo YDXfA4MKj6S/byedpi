@@ -1,0 +1,72 @@
+name: Android ARMv5TE build (Android 4.4+)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/android-arm.yml'
+      - '*.c'
+      - '*.h'
+      - 'Makefile'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Download Android NDK r16b
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 \
+            https://dl.google.com/android/repository/android-ndk-r16b-linux-x86_64.zip \
+            --output "$RUNNER_TEMP/android-ndk.zip"
+          unzip -q "$RUNNER_TEMP/android-ndk.zip" -d "$RUNNER_TEMP"
+          echo "NDK=$RUNNER_TEMP/android-ndk-r16b" >> "$GITHUB_ENV"
+
+      - name: Build for legacy 32-bit ARM Android
+        shell: bash
+        run: |
+          set -euxo pipefail
+          TOOLCHAIN="$NDK/toolchains/arm-linux-androideabi-4.9/prebuilt/linux-x86_64"
+          SYSROOT="$NDK/platforms/android-19/arch-arm"
+          CC="$TOOLCHAIN/bin/arm-linux-androideabi-gcc"
+
+          test -x "$CC"
+          test -d "$SYSROOT"
+
+          make clean
+          make \
+            CC="$CC" \
+            CPPFLAGS="--sysroot=$SYSROOT -D_DEFAULT_SOURCE" \
+            CFLAGS="--sysroot=$SYSROOT -I. -std=c99 -O2 -Wall -Wno-unused -Wextra -Wno-unused-parameter -pedantic -march=armv5te -msoft-float" \
+            LDFLAGS="--sysroot=$SYSROOT -Wl,-dynamic-linker,/system/bin/linker"
+
+          file ciadpi
+          "$TOOLCHAIN/bin/arm-linux-androideabi-readelf" -h ciadpi
+          "$TOOLCHAIN/bin/arm-linux-androideabi-readelf" -l ciadpi
+
+      - name: Package binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp ciadpi dist/ciadpi-android-armeabi
+          printf '%s\n' \
+            'Target: Android 4.4+ / 32-bit ARM armeabi' \
+            'Dynamic linker: /system/bin/linker' \
+            'Build: Android NDK r16b, API 19' \
+            'Payload and desynchronization strategy are unchanged.' \
+            > dist/BUILD-INFO.txt
+          tar -czf ciadpi-android-armeabi.tar.gz -C dist .
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ciadpi-android-armeabi
+          path: ciadpi-android-armeabi.tar.gz
+          if-no-files-found: error
+          retention-days: 14
