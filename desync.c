@@ -196,22 +196,25 @@ static int set_md5sig(int sfd, unsigned short key_len)
 static ssize_t send_fake(struct eval *val, const char *buffer,
         long pos, const struct desync_params *opt, struct packet pkt)
 {
+    /*
+     * Older Linux kernels may reject vmsplice(SPLICE_F_GIFT) with EINVAL.
+     * Use write() into a pipe followed by splice() as a compatibility path.
+     */
     int fds[2];
     if (pipe(fds) < 0) {
         uniperror("pipe");
         return -1;
     }
-    size_t ms = pos > pkt.size ? pos : pkt.size;
+
     ssize_t ret = -1;
-    
+    char *p = pkt.data + pkt.off;
+
     val->restore_orig = buffer;
     val->restore_orig_len = pos;
-    
+    val->restore_fake = p;
+    val->restore_fake_len = pkt.size;
+
     while (1) {
-        char *p = pkt.data + pkt.off;
-        val->restore_fake = p;
-        val->restore_fake_len = pkt.size;
-        
         if (setttl(val->fd, opt->ttl ? opt->ttl : DEFAULT_TTL) < 0) {
             break;
         }
@@ -220,15 +223,18 @@ static ssize_t send_fake(struct eval *val, const char *buffer,
             break;
         }
         val->restore_md5 = opt->md5sig;
-        
-        struct iovec vec = { .iov_base = p, .iov_len = pos };
-        
-        ssize_t len = vmsplice(fds[1], &vec, 1, SPLICE_F_GIFT);
+
+        ssize_t len = write(fds[1], p, (size_t)pos);
         if (len < 0) {
-            uniperror("vmsplice");
+            uniperror("write fake pipe");
             break;
         }
-        len = splice(fds[0], 0, val->fd, 0, len, 0);
+        if (len != pos) {
+            LOG(LOG_E, "short write to fake pipe: %zd != %ld\\n", len, pos);
+            break;
+        }
+
+        len = splice(fds[0], 0, val->fd, 0, (size_t)len, 0);
         if (len < 0) {
             uniperror("splice");
             break;
@@ -236,6 +242,7 @@ static ssize_t send_fake(struct eval *val, const char *buffer,
         ret = len;
         break;
     }
+
     close(fds[0]);
     close(fds[1]);
     return ret;
