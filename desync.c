@@ -230,7 +230,7 @@ static ssize_t send_fake(struct eval *val, const char *buffer,
             break;
         }
         if (len != pos) {
-            LOG(LOG_E, "short write to fake pipe: %zd != %ld\\n", len, pos);
+            LOG(LOG_E, "short write to fake pipe: %zd != %ld\n", len, pos);
             break;
         }
 
